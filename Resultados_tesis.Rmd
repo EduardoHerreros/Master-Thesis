@@ -1,0 +1,1100 @@
+---
+title: "PEC 4: final"
+author: "Eduardo Herreros Valenzuela"
+date: '`r format(Sys.Date(),"%e de %B, %Y")`'
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    df_print: kable
+    fig_caption: yes
+    includes:
+      in_header: header.tex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries, include=FALSE}
+library(ape)
+library(dplyr)
+library(ggplot2)
+library(gplots)
+library(microbiome)
+library(lme4)
+library(data.table)
+library(miLineage)
+library(phangorn)
+library(plotly)
+library(tidyr)
+library(vegan)
+library(VennDiagram)
+library(DESeq2)
+library(phyloseq)
+library(kableExtra)
+library(nortest)
+library(cluster)
+library(clusterSim)
+library(ade4)
+library(randomForest)
+library(tidyverse)
+library(ggpubr)
+library(caret)
+library(xgboost)
+library(doParallel)
+library(nnet)
+library(MASS)
+library(ranger)
+library(gbm)
+library(kernlab)
+```
+
+\pagebreak
+
+
+```{r pre1, echo=FALSE}
+# Read and load data generated from bash line
+datos <- read.table("datos_tesis.txt", sep = "\t", stringsAsFactors = F)
+OTUs <- read.table("genus.count.txt",header = TRUE, sep = "\t")
+colnames(datos) <- c('Names' ,'add_adhd',
+'age_years',
+'alcohol_consumption',
+'alcohol_frequency',
+'alzheimers',
+'antibiotic_history',
+'appendix_removed',
+'artificial_sweeteners',
+'asd',
+'bmi',
+'bowel_movement_frequency',
+'breastmilk_formula_ensure',
+'chickenpox',
+'consume_animal_products_abx',
+'contraceptive',
+'country',
+'depression_bipolar_schizophrenia',
+'diabetes',
+'diet_type',
+'drinking_water_source',
+'epilepsy_or_seizure_disorder',
+'exercise_frequency',
+'fed_as_infant',
+'fermented_plant_frequency',
+'flossing_frequency',
+'fruit_frequency',
+'gluten',
+'height_cm',
+'high_fat_red_meat_frequency',
+'homecooked_meals_frequency',
+'ibd',
+'ibs',
+'lactose',
+'liver_disease',
+'lowgrain_diet_type',
+'meat_eggs_frequency',
+'mental_illness',
+'mental_illness_type_anorexia_nervosa',
+'mental_illness_type_bipolar_disorder',
+'mental_illness_type_bulimia_nervosa',
+'mental_illness_type_depression',
+'mental_illness_type_ptsd_posttraumatic_stress_disorder',
+'mental_illness_type_schizophrenia',
+'mental_illness_type_substance_abuse',
+'mental_illness_type_unspecified',
+'migraine',
+'milk_cheese_frequency',
+'milk_substitute_frequency',
+'multivitamin',
+'olive_oil',
+'one_liter_of_water_a_day_frequency',
+'pku',
+'prepared_meals_frequency',
+'probiotic_frequency',
+'race',
+'ready_to_eat_meals_frequency',
+'red_meat_frequency',
+'salted_snacks_frequency',
+'seafood_frequency',
+'sex',
+'sibo',
+'specialized_diet',
+'specialized_diet_exclude_dairy',
+'specialized_diet_exclude_nightshades',
+'specialized_diet_exclude_refined_sugars',
+'specialized_diet_fodmap',
+'specialized_diet_halaal',
+'specialized_diet_i_do_not_eat_a_specialized_diet',
+'specialized_diet_kosher',
+'specialized_diet_modified_paleo_diet',
+'specialized_diet_other_restrictions_not_described_here',
+'specialized_diet_paleodiet_or_primal_diet',
+'specialized_diet_raw_food_diet',
+'specialized_diet_unspecified',
+'specialized_diet_westenprice_or_other_lowgrain_low_processed_fo',
+'sugar_sweetened_drink_frequency',
+'sugary_sweets_frequency',
+'tonsils_removed',
+'vegetable_frequency',
+'vitamin_b_supplement_frequency',
+'vitamin_d_supplement_frequency',
+'weight_kg',
+'whole_eggs',
+'whole_grain_frequency')
+datos2 <- datos[,c(1:4,6:8,10,11,17,19,20,22,29,32,33,39:45,47,55,56,61,62,83)]
+
+# Fix variables to Yes or No regarding the condition
+datos2[datos2 == "Not provided"] <- NA
+datos2[datos2 == "Unspecified"] <- NA
+datos2[datos2 == "unspecified"] <- NA
+datos2[datos2 == ""] <- NA
+datos2[datos2 == "other"] <- NA
+datos2[datos2 == "false"] <- "No"
+datos2[datos2 == "Not sure"] <- "No"
+datos2[datos2 == "true"] <- "Yes"
+datos2[datos2 == "Diagnosed by a medical professional (doctor, physician assistant)"] <- "Yes"
+datos2[datos2 == "Diagnosed by an alternative medicine practitioner"] <- "Yes"
+datos2[datos2 == "I do not have this condition"] <- "No"
+datos2[datos2 == "Self-diagnosed"] <- "Yes"
+datos2[datos2 == "Daily"] <- "Yes"
+datos2[datos2 == "Occasionally (1-2 times/week)"] <- "Yes"
+datos2[datos2 == "Rarely (a few times/month)"] <- "Yes"
+datos2[datos2 == "Regularly (3-5 times/week)"] <- "Yes"
+datos2[datos2 == "Never"] <- "No"
+datos2[datos2 == "6 months"] <- "Yes"
+datos2[datos2 == "Month"] <- "Yes"
+datos2[datos2 == "Week"] <- "Yes"
+datos2[datos2 == "Year"] <- "No"
+datos2[datos2 == "I have not taken antibiotics in the past year."] <- "No"
+datos2$age_years <- as.numeric(datos2$age_years)
+datos2$bmi <- as.numeric(datos2$bmi)
+datos2$height_cm <- as.numeric(datos2$height_cm)
+datos2$weight_kg <- as.numeric(datos2$weight_kg)
+i <- sapply(datos2, is.character)
+datos2[i] <- lapply(datos2[i], as.factor)
+
+# Use only complete cases
+datos3 <- datos2[complete.cases(datos2), ]
+datos4 <- subset(datos3, datos3$age_years > 17)
+datos4 <- subset(datos4, datos4$height_cm > 140)
+datos4 <- subset(datos4, datos4$height_cm < 210)
+datos4 <- subset(datos4, datos4$weight_kg > 45)
+datos4 <- subset(datos4, datos4$weight_kg < 200)
+datos4 <- subset(datos4, datos4$bmi < 30)
+names(datos4)[17] <- "anorexia_nervosa"
+names(datos4)[18] <- "bipolar_disorder"
+names(datos4)[19] <- "bulimia_nervosa"
+names(datos4)[20] <- "depression"
+names(datos4)[21] <- "ptsd"
+names(datos4)[22] <- "schizophrenia"
+names(datos4)[23] <- "substance_abuse"
+
+# Use the same amount of Mental illness samples with Yes and No to that condition
+datos4 <- mutate(datos4, Mental_illness = ifelse(Reduce(`|`, lapply(datos4[,c(2,5,8,13,17:23)], `==`, 'Yes')), 'Yes', 'No'))
+datos4$Mental_illness <- as.factor(datos4$Mental_illness)
+
+set.seed(12345)
+datos5 <- datos4 %>% group_by(Mental_illness) %>% sample_n(size = 1161)
+datos5$age_factors <- cut(datos5$age_years,breaks = seq(10,100,10))
+datos5$age_factors <- as.integer(datos5$age_factors)
+datos5$age_factors <- as.factor(datos5$age_factors)
+```
+
+
+
+```{r pre2, echo=FALSE}
+# OTU table were filtered using the same people that are in the data table (datos5).
+stay <- datos5$Names
+OTUs2 <- OTUs[,which(colnames(OTUs) %in% stay)]
+Metadata <- as.data.frame(datos5)
+row.names(Metadata) <- Metadata$Names
+Metadata <- Metadata[,-1]
+taxa <- data.frame(row.names(OTUs2))
+names(taxa)[1] <- "Taxonomy"
+tax.clean <- separate(taxa, Taxonomy, into = c("Domain", "Phylum", "Class", "Order", "Family", "Genus"), sep=";")
+rownames(OTUs2) <- paste0("OTU", 1:nrow(OTUs2))
+rownames(tax.clean) <- rownames(OTUs2)
+```
+
+# Baseline characteristics of the study population.
+
+In this project, the data of 16569 persons was included. From those, 7276 had compleated cases. After we applied the eligibility criteria explained in methods, 5910 left. Finally, we choosed randomly the same amount of samples with and without mental illness, obtaining a final number of 2322 gut microbiome samples with the metadata information. 
+All continues variables presented a non-normal distribution (p-values < 0.05), calculated by the Lillie test. The population characteristics are summarized in table 1, categorical variables were analyzed using chi-square and continuous variables using Mann Withney U test. 
+Statistical differences regarding the mental illness states were found. As they can act as posible confunders factors, DESeq2 analysis and machine learning algorithms were corrected by these factors, excepts weight that when BMI was analized, no differences were found.
+
+
+
+```{r descriptive, echo=FALSE, include=FALSE}
+yes <- filter(datos5, Mental_illness == 'Yes')
+no <- filter(datos5, Mental_illness == 'No')
+lillie.test(Metadata$age_years)
+lillie.test(Metadata$height_cm)
+lillie.test(Metadata$bmi)
+lillie.test(Metadata$weight_kg)
+summary(yes$age_years)
+summary(no$age_years)
+wilcox.test(Metadata$age_years ~ Metadata$Mental_illness)
+addmargins(with(Metadata,table(alcohol_consumption, Mental_illness)))
+prop.table(with(Metadata,table(alcohol_consumption, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$alcohol_consumption)
+addmargins(with(Metadata,table(antibiotic_history, Mental_illness)))
+prop.table(with(Metadata,table(antibiotic_history, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$antibiotic_history)
+addmargins(with(Metadata,table(appendix_removed, Mental_illness)))
+prop.table(with(Metadata,table(appendix_removed, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$appendix_removed)
+summary(yes$bmi)
+summary(no$bmi)
+wilcox.test(Metadata$bmi ~ Metadata$Mental_illness)
+addmargins(with(Metadata,table(country, Mental_illness)))
+prop.table(with(Metadata,table(country, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$country)
+addmargins(with(Metadata,table(diabetes, Mental_illness)))
+prop.table(with(Metadata,table(diabetes, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$diabetes)
+addmargins(with(Metadata,table(diet_type, Mental_illness)))
+prop.table(with(Metadata,table(diet_type, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$diet_type)
+summary(yes$height_cm)
+summary(no$height_cm)
+wilcox.test(Metadata$height_cm ~ Metadata$Mental_illness)
+addmargins(with(Metadata,table(ibd, Mental_illness)))
+prop.table(with(Metadata,table(ibd, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$ibd)
+addmargins(with(Metadata,table(ibs, Mental_illness)))
+prop.table(with(Metadata,table(ibs, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$ibs)
+addmargins(with(Metadata,table(migraine, Mental_illness)))
+prop.table(with(Metadata,table(migraine, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$migraine)
+addmargins(with(Metadata,table(probiotic_frequency, Mental_illness)))
+prop.table(with(Metadata,table(probiotic_frequency, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$probiotic_frequency)
+addmargins(with(Metadata,table(race, Mental_illness)))
+prop.table(with(Metadata,table(race, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$race)
+addmargins(with(Metadata,table(sex, Mental_illness)))
+prop.table(with(Metadata,table(sex, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$sex)
+addmargins(with(Metadata,table(sibo, Mental_illness)))
+prop.table(with(Metadata,table(sibo, Mental_illness)),2)
+chisq.test(Metadata$Mental_illness, Metadata$sibo)
+summary(yes$weight_kg)
+summary(no$weight_kg)
+wilcox.test(Metadata$weight_kg ~ Metadata$Mental_illness)
+```
+
+```{r characteristics, echo=FALSE}
+Group_characteristics <- data.frame("Characteristic" = c("Age (y)", "Alcohol", "Antibiotic", "Appendix removed", "BMI", "Country", "Diabetes", "Diet type", "Height (cm)", "Ibd", "Ibs", "Migraine", "Probiotic", "Ethnicity", "Sex (male)", "Sibo", "Weight (Kg)"),
+                                    "Yes (1161)" = c("44.0 (34.0;57.0)","930 (80.1)", "258 (22.2)", "135 (11.6)", "23.1 (21.2;25.5)", "1161 (50.0)", "21 (1.8)", "1161 (50.0)", "172.0 (164.0;177.0)", "97 (8.4)", "368 (31.7)", "297 (25.6)", "744 (64.1)", "1161 (50.0)", "496 (42.7)", "113 (9.7)", "68.0 (59.0;77.0)"),
+                                    
+                                    "No (1161)" = c("49.0 (36.0;61.0)","1009 (86.9)", "186 (16.0)", "127 (10.9)", "23.6 (21.5;25.5)", "1161 (50.0)", "14 (1.2)", "1161 (50.0)", "172.0 (165.0;180.0)", "102 (8.8)", "216 (18.6)", "154 (13.3)", "621 (53.5)", "1161 (50.0)", "567 (48.8)", "51 (4.4)", "70.0 (60.0;80.0)"),
+                                    
+                                    "p value" = c("<0.001", "<0.001", "<0.001", "0.65", "0.07", "0.08", "0.31", "<0.001", "0.02", "0.77", "<0.001", "<0.001", "<0.001", "0.06", "0.004", "<0.001", "0.003"))
+kable(Group_characteristics, "latex", booktabs = T, caption = "Study population characteristics regarding the mental illness state") %>% kable_styling(position = "center") %>%
+  add_header_above(c(" " = 1, "Mental Illness" = 2))
+```
+
+# Gut microbiota composition in the study population.
+
+No differences in the relative abundance of bacteria have been observed at phylum (Fig. \ref{fig:phylum1}) and family (Fig. \ref{fig:family1}) level. The most prodominant phyla found in our samples were Bacteroidaceae and Enterobacteriaceae (Fig. \ref{fig:family2}).
+
+```{r noise, include=FALSE, warning=FALSE, message=FALSE}
+# Genera with very low abundance were removed to decrease the noise
+noise.removal <- function(dataframe, percent=0.01, top=NULL){
+	dataframe->Matrix
+	bigones <- rowSums(Matrix)*100/(sum(rowSums(Matrix))) > percent 
+	Matrix_1 <- Matrix[bigones,]
+	print(percent)
+	return(Matrix_1)
+ }
+```
+
+```{r rel_abund, include=FALSE, warning=FALSE, message=FALSE}
+# Preparation of the OTU table for the analisys.
+OTUs2 <- OTUs2[,which(apply(OTUs2,2,max)>10)]
+OTUs3 <- noise.removal(OTUs2, percent = 0.01)
+OTU.physeq <- otu_table(OTUs3, taxa_are_rows=TRUE)
+otu_table(OTU.physeq) <- otu_table(round(as((otu_table(OTU.physeq)), "matrix")), taxa_are_rows(OTU.physeq))
+tax.physeq <- tax_table(as.matrix(tax.clean))
+meta.physeq <- sample_data(Metadata)
+physeq <- phyloseq(OTU.physeq, tax.physeq, meta.physeq)
+# Relative abundance table
+ps_rel_abund = transform_sample_counts(physeq, function(x){x / sum(x)})
+```
+
+```{r phylum1, echo=F, message=F, warning=F, fig.cap="\\label{fig:phylum1}Phylum composition of bacteria from gut samles of people with or withot mental illness."}
+# Phylum
+plot_bar(ps_rel_abund, x="Mental_illness", fill="Phylum") + geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack")
+```
+
+```{r phylum2, echo=F, message=F, warning=F, fig.cap="\\label{fig:phylum2}Top 5 Phylum taxas of gut samles of people with or withot mental illness."}
+top5P.names_phylum = sort(tapply(taxa_sums(ps_rel_abund), tax_table(ps_rel_abund)[, "Phylum"], sum), TRUE)[1:5]
+top5P_phylum = subset_taxa(ps_rel_abund, Phylum %in% names(top5P.names_phylum))
+plot_bar(top5P_phylum, x="Mental_illness", fill="Phylum", facet_grid = ~Phylum) + geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack") + stat_compare_means(label =  "p.signif", label.x = 1.5)
+```
+
+```{r family1, echo=F, message=F, warning=F, fig.cap="\\label{fig:family1}Top 20 Family taxas of gut samles of people with or withot mental illness."}
+# Family
+top30P.names_family = sort(tapply(taxa_sums(ps_rel_abund), tax_table(ps_rel_abund)[, "Family"], sum), TRUE)[1:30]
+top30P_family = subset_taxa(ps_rel_abund, Family %in% names(top30P.names_family))
+plot_bar(top30P_family, x="Mental_illness", fill="Family") + geom_bar(aes(color=Family, fill=Family), stat="identity", position="stack")
+
+```
+
+```{r family2, echo=F, message=F, warning=FALSE, message=FALSE, fig.cap="\\label{fig:family2}Top 5 Family taxas of gut samles of people with or withot mental illness."}
+top5P.names_family = sort(tapply(taxa_sums(ps_rel_abund), tax_table(ps_rel_abund)[, "Family"], sum), TRUE)[1:5]
+top5P_family = subset_taxa(ps_rel_abund, Family %in% names(top5P.names_family))
+plot_bar(top5P_family, x="Mental_illness", fill="Family", facet_grid = ~ Family) + geom_bar(aes(color=Family, fill=Family), stat="identity", position="stack")
+```
+
+# Alpha and Beta-diversity of the gut microbiota in mental illness population.
+
+People with some mental illness problem had lower microbial diversity (p = 0.002, Shannon index) but no differences in microbial richnnes (Fig. \ref{fig:alpha}).
+Beta diversity analysis using Bray Curtis distance do not showed clearly that the samples groups regarding the mental illness states (Fig. \ref{fig:beta}). However, adonis test was significant (p = 0.032) so the null hypothesis that mental illness states have the same centroid can be rejected. Moreover, the betadisper results are not significant (p = 0.849), meaning that the null hypothesis that our groups have the same dispersions can be reject.  This strenghted the adonis results, and that is not due to differences in group dispersions.
+
+```{r alpha, warning=F, echo=F, message=FALSE, fig.width=8 ,fig.height=5, fig.cap="\\label{fig:alpha}Boxplots of diversity indices for the gut microbiome, Chao1 and Shannon indices."}
+ps_rare <- rarefy_even_depth(physeq, rngseed = 123, replace = FALSE)
+plot_richness(physeq, x = "Mental_illness", color = "Mental_illness", measures = c("Shannon", "Chao1")) + geom_boxplot() + stat_compare_means(label = "p.format")
+rich <- estimate_richness(physeq, measures = c("Shannon", "Chao1"))
+pairwise.wilcox.test(rich$Shannon, sample_data(physeq)$Mental_illness)
+pairwise.wilcox.test(rich$Chao1, sample_data(physeq)$Mental_illness)
+```
+
+
+
+```{r beta, warning=F, echo=F, message=F, fig.width=8 ,fig.height=5, fig.cap="\\label{fig:beta}Ordination (PCoA) generated by using the Bray–Curtis dissimilarity metric for the two mental illness states. Samples are colored according to mental illness state."}
+ordination_bray <- ordinate(ps_rare, method = "PCoA", distance = "bray")
+plot_ordination(ps_rare, ordination_bray, color = "Mental_illness") + theme(aspect.ratio = 1) +
+  ggtitle("Mental illness bacterial communities")
+bray_dist <- phyloseq::distance(ps_rare, method = "bray")
+sampledf <- data.frame(sample_data(ps_rare))
+adonis(bray_dist ~ Mental_illness, data = sampledf)
+beta <- betadisper(bray_dist, sampledf$Mental_illness)
+permutest(beta)
+```
+
+# Enterotype of the gut microbiota of the study population
+
+In the enterotype analysis, 2 cluster were found as the optimal number of cluster in the study population (Fig. \ref{fig:clusternum}). The driver taxa for the clusters formation were Bacteroidaceae and Enterobacteriaceae, OTU410 and OTU2503 respectively (Fig. \ref{fig:enterotyping}).    
+
+
+```{r clusternum, warning=F, echo=F, message=F, fig.cap="\\label{fig:clusternum}Optimal cluster number."}
+# Function for enterotyping
+JSD <- function(x,y) sqrt(0.5 * KLD(x, (x+y)/2) + 0.5 * KLD(y, (x+y)/2)) 
+KLD <- function(x,y) sum(x * log(x/y))
+dist.JSD <- function(inMatrix, pseudocount=0.000001, ...) {
+  KLD <- function(x,y) sum(x *log(x/y))
+  JSD <- function(x,y) sqrt(0.5 * KLD(x, (x+y)/2) + 0.5 * KLD(y, (x+y)/2))
+  matrixColSize <- length(colnames(inMatrix))
+  matrixRowSize <- length(rownames(inMatrix))
+  colnames <- colnames(inMatrix)
+  resultsMatrix <- matrix(0, matrixColSize, matrixColSize)
+  
+  inMatrix = apply(inMatrix,1:2,function(x) ifelse (x==0,pseudocount,x))
+  
+  for(i in 1:matrixColSize) {
+    for(j in 1:matrixColSize) { 
+      resultsMatrix[i,j]=JSD(as.vector(inMatrix[,i]),
+                             as.vector(inMatrix[,j]))
+    }
+  }
+  colnames -> colnames(resultsMatrix) -> rownames(resultsMatrix)
+  as.dist(resultsMatrix)->resultsMatrix
+  attr(resultsMatrix, "method") <- "dist"
+  return(resultsMatrix) 
+}
+
+# Function for PAM clustering
+pam.clustering <- function(x,k) { # x is a distance matrix and k the number of clusters
+                         require(cluster)
+                         cluster = as.vector(pam(as.dist(x), k, diss=TRUE)$clustering)
+                         return(cluster)
+}
+
+#Enterotyping
+data.dist <- dist.JSD(OTUs3)
+data.cluster <- pam.clustering(data.dist, k=3)
+
+#We look for the best k
+nclusters=NULL
+
+	for (k in 1:20) { 
+		if (k==1) {
+			nclusters[k]=NA 
+		} else {
+			data.cluster_temp=pam.clustering(data.dist, k)
+			nclusters[k]=index.G1(t(OTUs3),data.cluster_temp,  d = data.dist,
+			centrotypes = "medoids")
+		}
+	}
+	
+plot(nclusters, type="h", xlab="k clusters", ylab="CH index")
+	
+# This has shown that the optimal number of clusters for this particular dataset is 2 (k=2).
+```
+
+
+```{r enterotyping, warning=F, echo=F, message=F, fig.cap="\\label{fig:enterotyping}Between-class analysis (BCA) of the enterotypes."}
+data.cluster <- pam.clustering(data.dist, k=2)
+data.cluster[data.cluster == 1] <- "Bacteroidaceae"
+data.cluster[data.cluster == 2] <- "Enterobacteriaceae"
+
+obs.pcoa <- dudi.pco(data.dist, scannf=F, nf=3)
+s.class(obs.pcoa$li, fac=as.factor(data.cluster), grid=F, col = c("#1B9E77","#7570B3"), cstar = 0)
+```
+
+# Differential abundance analysis of the gut microbiota
+
+To explore the differential composition of the gut microbiota in response to the different mental illness states DESeq2 analysis were performed. Fiftyone OTUs were significantly (padj value < 0.05) different regarding the mental states (Table 2). The phylum bacteroidetes are differentialy expressed in only those who had one mental illness (Fig. \ref{fig:deseq2}). On the other side, Proteobacteria tend to be more expressed in those people whitout mental illness.  
+
+```{r dephy, warning=FALSE, include=FALSE, message=FALSE}
+dephy <- phyloseq_to_deseq2(physeq, ~ Mental_illness + age_factors + alcohol_consumption + antibiotic_history + diet_type + ibs + migraine + probiotic_frequency + race + sex + sibo)
+
+phy_mean <- function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+  }
+geoMeans <- apply(counts(dephy), 1, phy_mean)
+dephy <- estimateSizeFactors(dephy, geoMeans = geoMeans)
+dephy <- DESeq(dephy, fitType="local")
+res <- results(dephy)
+res <- res[order(res$padj, na.last=NA), ]
+sigtab <- res[(res$padj < 0.05), ]
+sigtab <- cbind(as(sigtab, "data.frame"), as(tax_table(physeq)[rownames(sigtab), ], "matrix"))
+```
+
+\pagebreak
+
+```{r longtable, echo=FALSE}
+kable(sigtab, "latex", booktabs = T, caption = "Significantly enriched OTUs in the gut microbiome regarding mental illness state") %>% kable_styling(latex_options = c("scale_down")) %>% landscape()
+```
+
+\pagebreak
+
+```{r deseq2, warning=F, echo=F, message=F, fig.cap="\\label{fig:deseq2}Phylum and family order representation of the DESeq2 results."}
+theme_set(theme_bw())
+sigtabgen = subset(sigtab, !is.na(Family))
+# Phylum order
+x = tapply(sigtabgen$log2FoldChange, sigtabgen$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtabgen$Phylum = factor(as.character(sigtabgen$Phylum), levels=names(x))
+# Family order
+x = tapply(sigtabgen$log2FoldChange, sigtabgen$Family, function(x) max(x))
+x = sort(x, TRUE)
+sigtabgen$Family = factor(as.character(sigtabgen$Family), levels=names(x))
+ggplot(sigtabgen, aes(y=Family, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color = "gray", size = 0.5) +
+  geom_point(size=2) + 
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5))
+```
+
+```{r preparation, include=FALSE, warning=FALSE, message=FALSE}
+# Data preparation for Machine learning methods analyses 
+
+predictors <- t(otu_table(physeq))
+predi <- as.data.frame(predictors)
+Metadata1 <- Metadata[,c(3,5,11,14,23:27,29,30)]
+predictores_learning <- merge(predi, Metadata1, by=0, all=TRUE)
+predictores_learning <- predictores_learning[,-1]
+predictores_learning$alcohol_consumption <- ifelse(predictores_learning$alcohol_consumption=='Yes', 1,0)
+predictores_learning$antibiotic_history <- ifelse(predictores_learning$antibiotic_history=='Yes', 1,0)
+predictores_learning$ibd <- ifelse(predictores_learning$ibd=='Yes', 1,0)
+predictores_learning$migraine <- ifelse(predictores_learning$migraine=='Yes', 1,0)
+predictores_learning$probiotic_frequency <- ifelse(predictores_learning$probiotic_frequency=='Yes', 1,0)
+predictores_learning$sibo <- ifelse(predictores_learning$sibo=='Yes', 1,0)
+predictores_learning$sex <- ifelse(predictores_learning$sex=='male', 1,0)
+
+dietas <- data.frame(omnivore = ifelse(predictores_learning$diet_type=="Omnivore",1,0), 
+                     omnivore_not_red = ifelse(predictores_learning$diet_type=="Omnivore but do not eat red meat",1,0), 
+                     vegan = ifelse(predictores_learning$diet_type=="Vegan",1,0),
+                     vegetarian = ifelse(predictores_learning$diet_type=="Vegetarian",1,0),
+                     vegetarian_seafood = ifelse(predictores_learning$diet_type=="Vegetarian but eat seafood",1,0))
+
+races <- data.frame(african_american = ifelse(predictores_learning$race=="African American",1,0), 
+                    asian = ifelse(predictores_learning$race=="Asian or Pacific Islander",1,0), 
+                    caucasian = ifelse(predictores_learning$race=="Caucasian",1,0),
+                    hispanic = ifelse(predictores_learning$race=="Hispanic",1,0),
+                    other = ifelse(predictores_learning$race=="Other",1,0))
+
+ages <- data.frame(age1 = ifelse(predictores_learning$age_factors=="1",1,0), 
+                   age2 = ifelse(predictores_learning$age_factors=="2",1,0), 
+                   age3 = ifelse(predictores_learning$age_factors=="3",1,0),
+                   age4 = ifelse(predictores_learning$age_factors=="4",1,0),
+                   age5 = ifelse(predictores_learning$age_factors=="5",1,0),
+                   age6 = ifelse(predictores_learning$age_factors=="6",1,0),
+                   age7 = ifelse(predictores_learning$age_factors=="7",1,0),
+                   age8 = ifelse(predictores_learning$age_factors=="8",1,0),
+                   age9 = ifelse(predictores_learning$age_factors=="9",1,0))
+
+predictores <- cbind(predictores_learning, dietas)
+predictores <- cbind(predictores, races)
+predictores <- cbind(predictores, ages)
+predictores <- predictores[, -c(200,204,208)]
+```
+
+```{r train, include=FALSE, warning=FALSE, message=FALSE}
+# Data partition in train and test 
+set.seed(333)
+
+train <- createDataPartition(y = predictores$Mental_illness, p = 0.8, list = FALSE, times = 1)
+datos_train <- predictores[train, ]
+datos_test  <- predictores[-train, ]
+
+trainX <- datos_train[,-205]
+trainY <- datos_train$Mental_illness
+```
+
+
+```{r RF, include=FALSE, warning=FALSE, message=FALSE}
+# Random Forest
+
+# PROCESS PARALELIZATION
+#===============================================================================
+registerDoParallel(cores = 4)
+
+# HIPERPAPARAMETERS, NUMBER OF REPETITIONS AND SEEDS FOR EACH REPETITION
+#===============================================================================
+partitions  <- 10
+repeats <- 5
+
+# HIPERPARAMETERS
+hiperparameters <- expand.grid(mtry = c(8,15,28,56,72),
+                               min.node.size = c(2, 4, 10, 15, 30),
+                               splitrule = "gini")
+
+
+set.seed(555)
+seeds <- vector(mode = "list", length = (partitions * repeats) + 1)
+for (i in 1:(partitions * repeats)) {
+  seeds[[i]] <- sample.int(1000, nrow(hiperparameters)) 
+}
+seeds[[(partitions * repeats) + 1]] <- sample.int(1000, 1)
+
+# TRAINING DEFINITION
+#===============================================================================
+control_train <- trainControl(method = "repeatedcv", number = partitions,
+                              repeats = repeats, seeds = seeds,
+                              returnResamp = "final", verboseIter = FALSE,
+                              allowParallel = TRUE)
+
+# MODEL ADJUSTMENT
+# ==============================================================================
+set.seed(342)
+modelo_rf <- caret::train(trainX, trainY,
+                   method = "ranger",
+                   tuneGrid = hiperparameters,
+                   metric = "Accuracy",
+                   trControl = control_train,
+                   num.trees = 1100)
+```
+
+
+
+```{r SVM, include=FALSE, warning=FALSE, message=FALSE}
+# Support Vctor Machine (radial)
+
+# PROCESS PARALELIZATION
+#===============================================================================
+registerDoParallel(cores = 4)
+
+# HIPERPAPARAMETERS, NUMBER OF REPETITIONS AND SEEDS FOR EACH REPETITION
+#===============================================================================
+partitions  <- 10
+repeats <- 5
+
+# HIPERPARAMETERS
+hiperparameters <- expand.grid(sigma = c(0.001, 0.01, 0.1, 0.5, 1),
+                               C = c(1 , 20, 50, 100, 200, 500, 700))
+
+
+set.seed(555)
+seeds <- vector(mode = "list", length = (partitions * repeats) + 1)
+for (i in 1:(partitions * repeats)) {
+  seeds[[i]] <- sample.int(1000, nrow(hiperparameters)) 
+}
+seeds[[(partitions * repeats) + 1]] <- sample.int(1000, 1)
+
+# TRAINING DEFINITION
+#===============================================================================
+control_train <- trainControl(method = "repeatedcv", number = partitions,
+                              repeats = repeats, seeds = seeds,
+                              returnResamp = "final", verboseIter = FALSE,
+                              allowParallel = TRUE)
+
+# MODEL ADJUSTMENT
+# ==============================================================================
+set.seed(342)
+modelo_svm <- caret::train(trainX, trainY,
+                    method = "svmRadial",
+                    tuneGrid = hiperparameters,
+                    metric = "Accuracy",
+                    trControl = control_train)
+```
+
+
+
+```{r KNN, include=FALSE, warning=FALSE, message=FALSE}
+# KNN
+
+# PROCESS PARALELIZATION
+#===============================================================================
+registerDoParallel(cores = 4)
+
+# HIPERPAPARAMETERS, NUMBER OF REPETITIONS AND SEEDS FOR EACH REPETITION
+#===============================================================================
+partitions  <- 10
+repeats <- 5
+
+# HIPERPARAMETERS
+hiperparameters <- data.frame(k = c(1, 2, 5, 10, 15, 20, 30, 50))
+
+set.seed(555)
+seeds <- vector(mode = "list", length = (partitions * repeats) + 1)
+for (i in 1:(partitions * repeats)) {
+  seeds[[i]] <- sample.int(1000, nrow(hiperparameters)) 
+}
+seeds[[(partitions * repeats) + 1]] <- sample.int(1000, 1)
+
+# TRAINING DEFINITION
+#===============================================================================
+control_train <- trainControl(method = "repeatedcv", number = partitions,
+                              repeats = repeats, seeds = seeds,
+                              returnResamp = "final", verboseIter = FALSE,
+                              allowParallel = TRUE)
+
+# MODEL ADJUSTMENT
+# ==============================================================================
+set.seed(342)
+modelo_knn <- caret::train(trainX, trainY,
+                    method = "knn",
+                    tuneGrid = hiperparameters,
+                    metric = "Accuracy",
+                    trControl = control_train)
+```
+
+
+
+```{r LDA, include=FALSE, warning=FALSE, message=FALSE}
+# Linear discriminant analysis
+
+# PROCESS PARALELIZATION
+#===============================================================================
+registerDoParallel(cores = 4)
+
+# HIPERPAPARAMETERS, NUMBER OF REPETITIONS AND SEEDS FOR EACH REPETITION
+#===============================================================================
+partitions  <- 10
+repeats <- 5
+
+# HIPERPARAMETERS
+hiperparameters <- data.frame(parameter = "none")
+
+
+set.seed(555)
+seeds <- vector(mode = "list", length = (partitions * repeats) + 1)
+for (i in 1:(partitions * repeats)) {
+  seeds[[i]] <- sample.int(1000, nrow(hiperparameters)) 
+}
+seeds[[(partitions * repeats) + 1]] <- sample.int(1000, 1)
+
+# TRAINING DEFINITION
+#===============================================================================
+control_train <- trainControl(method = "repeatedcv", number = partitions,
+                              repeats = repeats, seeds = seeds,
+                              returnResamp = "final", verboseIter = FALSE,
+                              allowParallel = TRUE)
+
+# MODEL ADJUSTMENT
+# ==============================================================================
+set.seed(342)
+modelo_lda <- caret::train(trainX, trainY,
+                    method = "lda",
+                    tuneGrid = hiperparameters,
+                    metric = "Accuracy",
+                    trControl = control_train)
+```
+
+
+
+```{r GB, include=FALSE, warning=FALSE, message=FALSE}
+# Gradient Boosting
+
+# PROCESS PARALELIZATION
+#===============================================================================
+registerDoParallel(cores = 4)
+
+# HIPERPAPARAMETERS, NUMBER OF REPETITIONS AND SEEDS FOR EACH REPETITION
+#===============================================================================
+partitions  <- 10
+repeats <- 5
+
+# HIPERPARAMETERS
+hiperparameters <- expand.grid(interaction.depth = c(1,2),
+                               n.trees = c(500,1000,2000),
+                               shrinkage = c(0.001, 0.01, 0.1),
+                               n.minobsinnode = c(5,10,20))
+
+
+set.seed(555)
+seeds <- vector(mode = "list", length = (partitions * repeats) + 1)
+for (i in 1:(partitions * repeats)) {
+  seeds[[i]] <- sample.int(1000, nrow(hiperparameters)) 
+}
+seeds[[(partitions * repeats) + 1]] <- sample.int(1000, 1)
+
+# TRAINING DEFINITION
+#===============================================================================
+control_train <- trainControl(method = "repeatedcv", number = partitions,
+                              repeats = repeats, seeds = seeds,
+                              returnResamp = "final", verboseIter = FALSE,
+                              allowParallel = TRUE)
+
+# MODEL ADJUSTMENT
+# ==============================================================================
+set.seed(342)
+modelo_gb <- caret::train(trainX, trainY,
+                   method = "gbm",
+                   tuneGrid = hiperparameters,
+                   metric = "Accuracy",
+                   trControl = control_train,
+                   distribution = "adaboost",
+                   verbose = FALSE)
+```
+
+
+
+```{r XGB, include=FALSE, warning=FALSE, message=FALSE}
+## Extreme Gradient Boosting
+
+# Step 1: Number of Iterations and the Learning Rate
+
+tune_grid <- expand.grid(
+  nrounds = seq(from = 200, to = 1000, by = 50),
+  eta = c(0.025, 0.05, 0.1, 0.3),
+  max_depth = c(2, 3, 4, 5, 6),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1)
+
+tune_control <- caret::trainControl(
+  method = "cv", 
+  number = 3,  
+  verboseIter = FALSE, 
+  allowParallel = TRUE)
+
+xgb_tune <- caret::train(
+  x = trainX,
+  y = trainY,
+  trControl = tune_control,
+  tuneGrid = tune_grid,
+  method = "xgbTree",
+  verbose = FALSE)
+
+# Step 2: Maximum Depth and Minimum Child Weight
+
+tune_grid2 <- expand.grid(
+  nrounds = seq(from = 50, to = 1000, by = 50),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = ifelse(xgb_tune$bestTune$max_depth == 2,
+    c(xgb_tune$bestTune$max_depth:4),
+    xgb_tune$bestTune$max_depth - 1:xgb_tune$bestTune$max_depth + 1),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(1, 2, 3),
+  subsample = 1)
+
+xgb_tune2 <- caret::train(
+  x = trainX,
+  y = trainY,
+  trControl = tune_control,
+  tuneGrid = tune_grid2,
+  method = "xgbTree",
+  verbose = FALSE)
+
+# Step 3: Column and Row Sampling
+
+tune_grid3 <- expand.grid(
+  nrounds = seq(from = 50, to = 1000, by = 50),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, 1.0))
+
+xgb_tune3 <- caret::train(
+  x = trainX,
+  y = trainY,
+  trControl = tune_control,
+  tuneGrid = tune_grid3,
+  method = "xgbTree",
+  verbose = FALSE)
+
+# Step 4: Gamma
+
+tune_grid4 <- expand.grid(
+  nrounds = seq(from = 50, to = 1000, by = 50),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample)
+
+xgb_tune4 <- caret::train(
+  x = trainX,
+  y = trainY,
+  trControl = tune_control,
+  tuneGrid = tune_grid4,
+  method = "xgbTree",
+  verbose = FALSE)
+
+# Step 5: Reducing the Learning Rate
+
+tune_grid5 <- expand.grid(
+  nrounds = seq(from = 100, to = 10000, by = 100),
+  eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = xgb_tune4$bestTune$gamma,
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample)
+
+xgb_tune5 <- caret::train(
+  x = trainX,
+  y = trainY,
+  trControl = tune_control,
+  tuneGrid = tune_grid5,
+  method = "xgbTree",
+  verbose = FALSE)
+
+# PROCESS PARALELIZATION
+#===============================================================================
+registerDoParallel(cores = 4)
+
+# HIPERPAPARAMETERS, NUMBER OF REPETITIONS AND SEEDS FOR EACH REPETITION
+#===============================================================================
+partitions  <- 10
+repeats <- 5
+
+# HIPERPARAMETERS
+hiperparameters <- expand.grid(nrounds = xgb_tune5$bestTune$nrounds,
+                               eta = xgb_tune5$bestTune$eta,
+                               max_depth = xgb_tune5$bestTune$max_depth,
+                               gamma = xgb_tune5$bestTune$gamma,
+                               colsample_bytree = xgb_tune5$bestTune$colsample_bytree,
+                               min_child_weight = xgb_tune5$bestTune$min_child_weight,
+                               subsample = xgb_tune5$bestTune$subsample)
+
+
+# TRAINING DEFINITION
+#===============================================================================
+control_train <- trainControl(method = "repeatedcv", number = partitions,
+                              repeats = repeats,
+                              returnResamp = "final", verboseIter = FALSE,
+                              allowParallel = TRUE)
+
+# MODEL ADJUSTMENT
+# ==============================================================================
+set.seed(342)
+modelo_xgb <- caret::train(trainX, trainY,
+                    method = "xgbTree",
+                    tuneGrid = hiperparameters,
+                    metric = "Accuracy",
+                    trControl = control_train,
+                    verbose = FALSE)
+```
+
+
+
+```{r ANN, include=FALSE, warning=FALSE, message=FALSE}
+## Artificial Neural Network
+
+# PROCESS PARALELIZATION
+#===============================================================================
+registerDoParallel(cores = 4)
+
+# HIPERPAPARAMETERS, NUMBER OF REPETITIONS AND SEEDS FOR EACH REPETITION
+#===============================================================================
+partitions  <- 10
+repeats <- 5
+
+# HIPERPARAMETERS
+hiperparameters <- expand.grid(size = c(10, 20, 50, 80, 100, 120),
+                               decay = c(0.0001, 0.1, 0.5))
+
+
+set.seed(555)
+seeds <- vector(mode = "list", length = (partitions * repeats) + 1)
+for (i in 1:(partitions * repeats)) {
+  seeds[[i]] <- sample.int(1000, nrow(hiperparameters)) 
+}
+seeds[[(partitions * repeats) + 1]] <- sample.int(1000, 1)
+
+# TRAINING DEFINITION
+#===============================================================================
+control_train <- trainControl(method = "repeatedcv", number = partitions,
+                              repeats = repeats, seeds = seeds,
+                              returnResamp = "final", verboseIter = FALSE,
+                              allowParallel = TRUE)
+
+# MODEL ADJUSTMENT
+# ==============================================================================
+set.seed(342)
+modelo_ann <- caret::train(trainX, trainY,
+                    method = "nnet",
+                    tuneGrid = hiperparameters,
+                    metric = "Accuracy",
+                    trControl = control_train,
+                    rang = c(-0.7, 0.7), 
+                    MaxNWts = 3000,
+                    verbose = FALSE)
+```
+
+# Mental illness prediction by machine learning algorithms.
+
+Seven machine learning methods were performed to achived one model capable to predict the predisposition to some mental illness regarding the gut microbiota. Multiple model were created with different hiperparameters trying to look for the best model in each ML method. A 10-fold crossvalidation was applied to each methods. No model come out as a good predictor using the gut microbiota information, the worst model presented a mean accuracy of 0.5 (ANN) and the best one, Random Forest, of 0.62 (Fig. \ref{fig:validation}). When the test data where used for probed the model prediction, Random forest was the model with the better performance (Accuracy = 0.62), and the worst KNN with 0.48 (Fig. \ref{fig:testpred}).
+
+```{r models, include=FALSE, warning=FALSE, message=FALSE}
+ML_models <- list(RF = modelo_rf, KNN = modelo_knn, LDA = modelo_lda, 
+                  SVMradial = modelo_svm, ANN = modelo_ann,
+                  GB = modelo_gb, XGBoosting = modelo_xgb)
+
+resultados_resamples <- resamples(ML_models)
+metricas_resamples <- resultados_resamples$values %>%
+                         gather(key = "modelo", value = "valor", -Resample) %>%
+                         separate(col = "modelo", into = c("modelo", "metrica"),
+                                  sep = "~", remove = TRUE)
+accukappa <- metricas_resamples %>% 
+  group_by(modelo, metrica) %>% 
+  summarise(media = mean(valor)) %>%
+  spread(key = metrica, value = media) %>%
+  arrange(desc(Accuracy))
+```
+
+```{r validation, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="\\label{fig:validation}Machine learning models comparison of predictive accuracy."}
+metricas_resamples %>% filter(metrica == "Accuracy") %>%
+  group_by(modelo) %>% 
+  mutate(media = mean(valor)) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder(modelo, media), y = valor, color = modelo)) +
+    geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+    geom_jitter(width = 0.1, alpha = 0.6) +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(title = "Validation: Mean accuracy of repeated-CV",
+         subtitle = "Models sorted by average") +
+    coord_flip() +
+    theme(legend.position = "none")
+```
+
+
+```{r metrics, include=FALSE, warning=FALSE, message=FALSE}
+predicciones <- extractPrediction(
+                  models = ML_models,
+                  testX = datos_test[, -205],
+                  testY = datos_test$Mental_illness
+                  )
+
+prediction_metrics <- predicciones %>% 
+  mutate(acierto = ifelse(obs == pred, TRUE, FALSE)) %>%
+  group_by(object, dataType) %>%
+  summarise(accuracy = mean(acierto))
+
+tabla_performance <- prediction_metrics %>%
+  spread(key = dataType, value = accuracy) %>%
+  arrange(desc(Test))
+```
+
+
+```{r testpred, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="\\label{fig:testpred}Machine learning models prediction accuracy using the training and test dataset."}
+ggplot(data = prediction_metrics,
+       aes(x = reorder(object, accuracy), y = accuracy,
+           color = dataType, label = round(accuracy, 2))) +
+  geom_point(size = 8) +
+  scale_color_manual(values = c("orangered2", "gray50")) +
+  geom_text(color = "white", size = 3) +
+  scale_y_continuous(limits = c(0, 1)) +
+  coord_flip() +
+  labs(title = "Train and Test Accuracy", 
+       x = "model") +
+  theme_bw() + 
+  theme(legend.position = "bottom")
+```
+
+```{r}
+tiff("PCoA.tiff", units="in", width=8, height=5, res=300)
+plot_ordination(ps_rare, ordination_bray, color = "Mental_illness") + theme(aspect.ratio = 1) +
+  ggtitle("Mental illness bacterial communities") + theme_bw()
+dev.off()
+
+tiff("Alpha.tiff", units="in", width=8, height=5, res=300)
+plot_richness(physeq, x = "Mental_illness", color = "Mental_illness", measures = c("Shannon", "Chao1")) + geom_boxplot() + stat_compare_means(label = "p.format", label.x = 1.5) + theme_bw()
+dev.off()
+
+tiff("genus.tiff", units="in", width=8, height=5, res=300)
+plot_bar(top5P_genus, x="Mental_illness", fill="Genus", facet_grid = ~Genus) + geom_bar(aes(color=Genus, fill=Genus), stat="identity", position="stack") + stat_compare_means(aes(group = Mental_illness), label = "p.format", label.y = 250)
+dev.off()
+
+tiff("family1.tiff", units="in", width=8, height=5, res=300)
+plot_bar(top30P_family, x="Mental_illness", fill="Family") + geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack") + theme_bw()
+dev.off()
+
+tiff("family2.tiff", units="in", width=8, height=5, res=300)
+plot_bar(top5P_family, x="Mental_illness", fill="Family", facet_grid = ~ Family) + geom_bar(aes(color=Family, fill=Family), stat="identity", position="stack") + stat_compare_means(aes(group = Mental_illness), label = "p.format", label.y = 255)
+dev.off()
+
+tiff("phylum1.tiff", units="in", width=8, height=5, res=300)
+plot_bar(ps_rel_abund, x="Mental_illness", fill="Phylum") + geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack") + theme_bw()
+dev.off()
+
+tiff("phylum2.tiff", units="in", width=8, height=5, res=300)
+plot_bar(top5P_phylum, x="Mental_illness", fill="Phylum", facet_grid = ~Phylum) + geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack") + stat_compare_means(aes(group = Mental_illness), label = "p.format", label.y = 455)
+dev.off()
+
+tiff("clusternum.tiff", units="in", width=8, height=5, res=300)
+plot(nclusters, type="h", xlab="k clusters", ylab="CH index")
+dev.off()
+
+tiff("enterotypes.tiff", units="in", width=8, height=5, res=300)
+s.class(obs.pcoa$li, fac=as.factor(data.cluster), grid=F, col = c("#1B9E77","#7570B3"), cstar = 0)
+dev.off()
+
+tiff("deseq2.tiff", units="in", width=8, height=5, res=300)
+ggplot(sigtabgen, aes(y=Family, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color = "gray", size = 0.5) +
+  geom_point(size=2) + 
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5))
+dev.off()
+
+tiff("Validation.tiff", units="in", width=8, height=5, res=300)
+metricas_resamples %>% filter(metrica == "Accuracy") %>%
+  group_by(modelo) %>% 
+  mutate(media = mean(valor)) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder(modelo, media), y = valor, color = modelo)) +
+    geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+    geom_jitter(width = 0.1, alpha = 0.6) +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(title = "Validation: Mean accuracy of repeated-CV",
+         subtitle = "Models sorted by average") +
+    coord_flip() +
+    theme(legend.position = "none")
+dev.off()
+
+tiff("testpred.tiff", units="in", width=8, height=5, res=300)
+ggplot(data = prediction_metrics,
+       aes(x = reorder(object, accuracy), y = accuracy,
+           color = dataType, label = round(accuracy, 2))) +
+  geom_point(size = 8) +
+  scale_color_manual(values = c("orangered2", "gray50")) +
+  geom_text(color = "white", size = 3) +
+  scale_y_continuous(limits = c(0, 1)) +
+  coord_flip() +
+  labs(title = "Train and Test Accuracy", 
+       x = "model") +
+  theme_bw() + 
+  theme(legend.position = "bottom")
+dev.off()
+```
+
